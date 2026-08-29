@@ -376,6 +376,40 @@ forge test --match-contract Invariant -v
 
 ---
 
+## Verified against the EAS that is actually on Base Sepolia
+
+The unit and invariant suites deploy **eas-contracts v1.4.0** locally. Base Sepolia's
+predeploy reports **v1.2.0**. Everything here is built on the parts of the interface that
+are stable across those versions — `attest`, `revoke`, `getAttestation`,
+`SchemaRegistry.register`, and the `Attestation` struct — but "should be compatible" is not
+the same as knowing.
+
+`test/RagaLineage.fork.t.sol` finds out, by running the whole lifecycle against the real
+predeploys at `0x42…21` and `0x42…20`:
+
+```bash
+forge test --match-contract Fork --fork-url https://sepolia.base.org
+```
+
+```
+[PASS] test_fork_FullLifecycleAgainstLiveEas()          (gas: 1846182)
+[PASS] test_fork_ReportsTheLiveEasVersion()
+[PASS] test_fork_SchemasRegisterAgainstTheLiveRegistry()
+Suite result: ok. 3 passed; 0 failed; 0 skipped
+```
+
+What that actually exercised on the live contract: both schemas registered against the real
+`SchemaRegistry`; `confirmLineage` wrote a real attestation through the live `EAS.attest`,
+with our `LineageAttestationResolver` invoked and allowing it; a licence attestation issued
+with a real `expirationTime`; the royalty split resolved 8 / 2 ETH up the live attestation
+graph; and `revokeLineage` set `revocationTime` on the live EAS, after which
+`checkLicense` returned `LineageRevoked`.
+
+The tests skip themselves cleanly when no fork is configured (they check for code at the
+predeploy address first), so an ordinary `forge test` stays green offline and in CI.
+
+---
+
 ## Known limitations
 
 **A guru's revocation is final and unilateral.** There is deliberately no admin override
