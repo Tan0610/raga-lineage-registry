@@ -110,3 +110,73 @@ export const LICENSE_STATUS_MEANING: Record<string, string> = {
     "The licence itself is intact, but a guru has withdrawn the teaching lineage behind it.",
   VALID: "Licensed, in good standing, as of the block just read.",
 };
+
+/**
+ * The three events needed to rebuild the teaching graph from scratch, without asking
+ * the contract what it thinks the answer is.
+ *
+ * `LineageProposed` carries the agreed share; `LineageConfirmed` carries the attestation
+ * uid that share became real under; `LineageRevoked` retires it. Joined on `claimId`,
+ * they are enough to reconstruct every edge and its current standing.
+ */
+export const lineageEventsAbi = [
+  {
+    type: "event",
+    name: "LineageProposed",
+    inputs: [
+      {name: "claimId", type: "uint256", indexed: true},
+      {name: "student", type: "address", indexed: true},
+      {name: "teacher", type: "address", indexed: true},
+      {name: "teacherShareBps", type: "uint16", indexed: false},
+    ],
+  },
+  {
+    type: "event",
+    name: "LineageConfirmed",
+    inputs: [
+      {name: "claimId", type: "uint256", indexed: true},
+      {name: "attestationUid", type: "bytes32", indexed: true},
+      {name: "teacher", type: "address", indexed: true},
+      {name: "student", type: "address", indexed: false},
+    ],
+  },
+  {
+    type: "event",
+    name: "LineageRevoked",
+    inputs: [
+      {name: "attestationUid", type: "bytes32", indexed: true},
+      {name: "teacher", type: "address", indexed: true},
+      {name: "student", type: "address", indexed: true},
+    ],
+  },
+] as const;
+
+export const splitRoyaltyAbi = [
+  {
+    type: "function",
+    name: "splitRoyalty",
+    stateMutability: "view",
+    inputs: [
+      {name: "performer", type: "address"},
+      {name: "amount", type: "uint256"},
+    ],
+    outputs: [
+      {name: "recipients", type: "address[]"},
+      {name: "amounts", type: "uint256[]"},
+    ],
+  },
+  {
+    type: "function",
+    name: "MAX_LINEAGE_DEPTH",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{type: "uint256"}],
+  },
+  {
+    type: "function",
+    name: "TOTAL_BPS",
+    stateMutability: "view",
+    inputs: [],
+    outputs: [{type: "uint256"}],
+  },
+] as const;

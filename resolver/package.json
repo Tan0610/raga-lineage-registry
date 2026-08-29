@@ -6,7 +6,8 @@
   "description": "Answers 'who gets paid for this recording?' without reading Solidity.",
   "scripts": {
     "who-gets-paid": "tsx src/whoGetsPaid.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify-split": "tsx src/verifySplit.ts"
   },
   "dependencies": {
     "viem": "^2.21.0"

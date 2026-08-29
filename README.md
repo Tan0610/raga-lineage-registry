@@ -160,6 +160,63 @@ stayed **VALID**, because Devika's *own* edge to Rajam was never touched. That i
 lineage graph being genuinely load-bearing in how royalties resolve, observed from outside
 the contracts.
 
+### Checking the contract's arithmetic against the raw event log
+
+`who-gets-paid` asks the contract who gets paid and formats the answer nicely — which only
+ever proves the contract agrees with itself. `verify-split` is the adversarial version:
+
+```bash
+npm run verify-split -- --performer 0x7099…79C8 --amount 10
+```
+
+It reads `LineageProposed` / `LineageConfirmed` / `LineageRevoked` straight from the event
+log, **rebuilds the teaching graph from scratch** the way an indexer would have to,
+re-implements the cascading split in TypeScript over that independently-reconstructed
+graph, then calls the contract's own `splitRoyalty()` and diffs the two.
+
+```
+  Rebuilding the teaching graph for 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+  from the event log of 0x7a2088a1bFc9d81c55368AE168C2C02570cB814F (fromBlock=0)…
+
+  2 proposals · 2 confirmations · 0 revocations
+
+  Off-chain reconstructed split of 10 ETH:
+    0x70997970c51812dc3a010c7d01b50e0d17dc79c8   68.00%  6.8 ETH
+    0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc   20.00%  2 ETH
+    0x90f79bf6eb2c4f870365e785982e1f101e93b906   12.00%  1.2 ETH
+
+  On-chain splitRoyalty() split:
+    0x70997970c51812dc3a010c7d01b50e0d17dc79c8   68.00%  6.8 ETH
+    0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc   20.00%  2 ETH
+    0x90f79bf6eb2c4f870365e785982e1f101e93b906   12.00%  1.2 ETH
+
+  MATCH: the independently-reconstructed split agrees with the on-chain result.
+  CONSERVED: the split distributes exactly 10 ETH, no wei created or lost.
+```
+
+The harder case is revocation, because the reconstruction has to work out on its own that
+an edge is retired. After Ariyakudi revoked, the identical command — reading only the log —
+saw the revocation, dropped him, and still agreed:
+
+```
+  2 proposals · 2 confirmations · 1 revocations
+
+  Off-chain reconstructed split of 10 ETH:
+    0x70997970c51812dc3a010c7d01b50e0d17dc79c8   80.00%  8 ETH
+    0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc   20.00%  2 ETH
+
+  On-chain splitRoyalty() split:
+    0x70997970c51812dc3a010c7d01b50e0d17dc79c8   80.00%  8 ETH
+    0x3c44cdddb6a900fa2b585dd299e03d12fa4293bc   20.00%  2 ETH
+
+  MATCH: the independently-reconstructed split agrees with the on-chain result.
+  CONSERVED: the split distributes exactly 10 ETH, no wei created or lost.
+```
+
+It exits non-zero on either a mismatch or a leak, so it works as a CI check rather than
+only as something to read. The conservation line is checked independently of the diff — if
+both implementations were wrong in the same way, that line would still catch a leak.
+
 ### Reproducing that transcript
 
 ```bash
@@ -316,6 +373,38 @@ deep lineage chains.
 ```bash
 forge test --match-contract Invariant -v
 ```
+
+---
+
+## Known limitations
+
+**A guru's revocation is final and unilateral.** There is deliberately no admin override
+that can resurrect a revoked lineage; the student must obtain a fresh confirmation. That is
+the right default — a teacher's disavowal should not be reversible by a third party — but it
+does mean a guru acting in bad faith can permanently strip a performer's claim to the
+tradition. The mitigation is narrow and deliberate: `payRoyalty` still pays the performer
+under a revoked lineage, so the guru can break the *claim* but not the *income*.
+
+**One primary guru per performer.** `primaryLineageEdge` holds a single confirmed edge, so
+the graph is a chain rather than a DAG. Real lineages are sometimes plural — a vocalist may
+study seriously under two teachers. Modelling that would mean per-edge weights summing
+across parents and a materially more complex resolver; the Guru-Shishya framing in the brief
+centres on a single primary teacher, so a chain is the honest reading of *this* problem.
+
+**Cycles are tolerated, not prevented.** A can be confirmed as B's teacher while B is
+confirmed as A's. Detecting that on-chain would mean walking the chain on every
+confirmation. Instead `MAX_LINEAGE_DEPTH = 8` bounds every traversal, and
+`invariant_lineageWalkIsAlwaysBounded` asserts the walk terminates against cycles the
+fuzzer builds itself.
+
+**Role-gating is a real gate, and a real dependency.** `proposeLineage` needs
+`PERFORMER_ROLE` and `confirmLineage` needs `GURU_ROLE`, both granted by `REGISTRAR_ROLE`.
+That satisfies check 6 and reflects how a sabha actually admits people — but it means the
+registrar is a gatekeeper, and an unresponsive one blocks new lineage entirely.
+
+**Schema ids are per-deployment.** Both schemas are registered fresh in the constructors,
+so redeploying produces new schema uids and existing attestations do not carry over. A
+production version would register the schemas once and pass their uids in.
 
 ---
 
