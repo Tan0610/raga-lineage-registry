@@ -97,6 +97,89 @@ Two distinct consequences, both tested:
 
 ---
 
+## Using it without reading Solidity
+
+A vocalist and a licensing platform both need one question answered — *who gets paid for
+this recording, how much, and is the licence any good today?* The contracts hold that
+answer, but only as `bytes32` ids, basis points and enum ordinals. So the repo ships a
+TypeScript resolver that reads the chain and says it in words.
+
+```bash
+cd resolver && npm install
+npm run who-gets-paid -- --recording kalyani-varnam-2026 --amount 10 --licensee 0xf39F…2266
+```
+
+Real output, against the seeded local chain (`script/SeedLocal.s.sol`):
+
+```
+  Vanajakshi varnam
+  raga Kalyani
+  id   0x3984de28d4e4726f6c64868ab98b9b7b359f3c90a8e7dc6c1bb8ca96e888b240
+
+  TEACHING LINEAGE
+  performed by  0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+    guru               0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC  20% · Carnatic
+        "Kalyani varnam, 2018-2024"
+    guru's guru        0x90F79bf6EB2c4f870365E785982E1f101E93b906  15% · Carnatic
+        "the older pathantara"
+
+  IF A ROYALTY OF 10 ETH IS PAID TODAY
+    performer          0x7099…79C8      6.8 ETH                68.00%
+    guru               0x3C44…93BC      2 ETH                  20.00%
+    generation 2       0x90F7…b906      1.2 ETH                12.00%
+                                        ────────────────────
+    total                               10 ETH
+
+  LICENCE CHECK
+    0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+    VALID
+    Licensed, in good standing, as of the block just read.
+    checked against block 16 — this answer is a live read, not a cached one
+```
+
+Then Ariyakudi withdrew his confirmation that he taught Rajam — one `revokeLineage`
+transaction, nothing else touched — and the identical command answered differently:
+
+```
+  TEACHING LINEAGE
+  performed by  0x70997970C51812dc3A010C7d01b50e0d17dc79C8
+    guru               0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC  20% · Carnatic
+
+  IF A ROYALTY OF 10 ETH IS PAID TODAY
+    performer          0x7099…79C8      8 ETH                  80.00%
+    guru               0x3C44…93BC      2 ETH                  20.00%
+                                        ────────────────────
+    total                               10 ETH
+
+  LICENCE CHECK
+    VALID
+```
+
+Ariyakudi is gone from the split and his 1.2 ETH returned to Devika — while the licence
+stayed **VALID**, because Devika's *own* edge to Rajam was never touched. That is the
+lineage graph being genuinely load-bearing in how royalties resolve, observed from outside
+the contracts.
+
+### Reproducing that transcript
+
+```bash
+anvil &
+# export the first four keys anvil prints in its startup banner:
+# SEED_ADMIN_PK, SEED_DEVIKA_PK, SEED_RAJAM_PK, SEED_ARIYAKUDI_PK
+forge script script/SeedLocal.s.sol:SeedLocal --rpc-url http://127.0.0.1:8545 --broadcast
+# the script prints LICENSE_REGISTRY=… ; pass it to the resolver:
+cd resolver && npm install
+npm run who-gets-paid -- --recording kalyani-varnam-2026 --amount 10 \
+  --rpc http://127.0.0.1:8545 --registry <LICENSE_REGISTRY> --licensee 0xf39F…2266
+```
+
+`SeedLocal` deploys its own EAS (a fresh anvil has no predeploys), admits the performers
+and gurus, plays out both lineage confirmations, registers the recording and issues the
+licence. The anvil keys it uses are the ones anvil prints in its own startup banner — public
+development keys holding no value on any real network.
+
+---
+
 ## Why `LicenseStatus` is an enum, not a bool
 
 ```solidity
