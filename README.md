@@ -239,7 +239,7 @@ A guru is also somebody's student, so Rajam holds both `PERFORMER_ROLE` and `GUR
 forge test -vv
 ```
 
-30 tests, run against a **real EAS deployment** — `SchemaRegistry` and `EAS` from
+30 unit and fuzz tests plus a stateful invariant suite (see below), all run against a **real EAS deployment** — `SchemaRegistry` and `EAS` from
 eas-contracts v1.4.0 are deployed in `setUp`, not mocked, so every claim about revocation
 and expiry is verified against EAS's own behaviour.
 
@@ -254,6 +254,68 @@ and expiry is verified against EAS's own behaviour.
 | Role-gated attestation | `test_ProposingRequiresThePerformerRole`, `test_ConfirmingRequiresTheGuruRole`, `test_OnlyTheRegistrarCanAdmitPerformersAndGurus` |
 | Distinct failure states | `test_EveryFailureReasonIsDistinguishable`, `test_RevokedIsDistinctFromExpiredAndFromLineageRevoked` |
 | Full lifecycle | `test_FullLifecycle_AttestLicenseCheckRevoke` — attest → license → check → revoke, end to end |
+
+---
+
+## Beyond the brief: stateful invariant testing
+
+The lineage graph is the part most likely to hide a bug that no worked example reaches:
+its shape is built up by many independent actors, and the fuzzer can construct chains — and
+**cycles** — that no hand-written test would think to assemble.
+
+`test/RagaLineage.invariant.t.sol` drives randomised sequences of the whole lifecycle
+(propose, confirm, revoke, register, license, pay, withdraw, and the passage of time) over
+five people who each hold both `PERFORMER_ROLE` and `GURU_ROLE` — so anyone can be anyone's
+student, and the graph gets genuinely tangled. Every hop runs against a **real EAS
+deployment**, so the revocation and expiry semantics under test are EAS's own.
+
+| Invariant | What it rules out |
+|---|---|
+| `balanceEqualsWhatIsOwed` | The registry's books drifting from the ETH it holds |
+| `everyRoyaltyWeiIsAccountedFor` | Royalties lost, or a balance withdrawn twice |
+| `splitAlwaysConservesThePayment` | Rounding losing or inventing a wei, at any graph shape |
+| `lineageWalkIsAlwaysBounded` | An unbounded walk — asserted against fuzzer-built **cycles** |
+| `revokedEdgesNeverAppearInAResolvedLineage` | A revoked guru still being paid |
+| `revokedLineageIsNeverReportedValid` | A licence reading Valid over a withdrawn lineage |
+
+The last two are the ones that matter most: they assert *revocation actually means
+something* across every reachable sequence, rather than only in the one scenario a
+hand-written test constructs. The conservation invariant probes with a deliberately awkward
+`7_777_777_777_777_777` wei to force rounding at every generation.
+
+```
+Ran 1 test for test/RagaLineage.invariant.t.sol:RagaLineageInvariantTest
+[PASS] invariant_balanceEqualsWhatIsOwed
+[PASS] invariant_everyRoyaltyWeiIsAccountedFor
+[PASS] invariant_lineageWalkIsAlwaysBounded
+[PASS] invariant_revokedEdgesNeverAppearInAResolvedLineage
+[PASS] invariant_revokedLineageIsNeverReportedValid
+[PASS] invariant_splitAlwaysConservesThePayment
+ RagaLineageInvariantTest invariants (runs: 128, calls: 12800, reverts: 0)
+
+╭----------------+-------------------+-------+---------+----------╮
+| Contract       | Selector          | Calls | Reverts | Discards |
++=================================================================+
+| LineageHandler | confirmLineage    | 1538  | 0       | 0        |
+| LineageHandler | issueLicense      | 1568  | 0       | 0        |
+| LineageHandler | passTime          | 1615  | 0       | 0        |
+| LineageHandler | payRoyalty        | 1581  | 0       | 0        |
+| LineageHandler | proposeLineage    | 1586  | 0       | 0        |
+| LineageHandler | registerRecording | 1731  | 0       | 0        |
+| LineageHandler | revokeLineage     | 1593  | 0       | 0        |
+| LineageHandler | withdraw          | 1588  | 0       | 0        |
+╰----------------+-------------------+-------+---------+----------╯
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 24.69s
+```
+
+12,800 calls, **0 reverts, 0 violations**. Fewer runs than the other two repos because each
+call carries a real EAS attestation write; the depth per run is what matters for building
+deep lineage chains.
+
+```bash
+forge test --match-contract Invariant -v
+```
 
 ---
 
