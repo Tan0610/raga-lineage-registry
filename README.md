@@ -156,7 +156,7 @@ A guru is also somebody's student, so Rajam holds both `PERFORMER_ROLE` and `GUR
 forge test -vv
 ```
 
-28 tests, run against a **real EAS deployment** — `SchemaRegistry` and `EAS` from
+30 tests, run against a **real EAS deployment** — `SchemaRegistry` and `EAS` from
 eas-contracts v1.4.0 are deployed in `setUp`, not mocked, so every claim about revocation
 and expiry is verified against EAS's own behaviour.
 
@@ -166,7 +166,8 @@ and expiry is verified against EAS's own behaviour.
 | Validity read at time of use | `test_GuruRevokingLineageInvalidatesAnAlreadyIssuedLicense`, `test_ExpiryIsCheckedAgainstTheCurrentBlock`, `test_RevokingTheLicenseItselfInvalidatesIt` |
 | Genuine EAS schema | `test_SchemasAreRegisteredWithTheEasSchemaRegistry`, `test_LineageDataRoundTripsThroughTheEasSchema`, `test_LicenseIsAnEasAttestationWithARealExpiry` |
 | Royalty resolves through the graph | `test_RoyaltySplitsAcrossThreeGenerations`, `test_RevokedUpstreamEdgeDropsThatTeacherFromTheSplit`, `test_PerformerWithNoLineageKeepsTheWholeRoyalty`, `testFuzz_RoyaltySplitAlwaysConservesTheWholePayment` |
-| Revocation changes state | `test_RevocationIsRecordedOnTheEasAttestation`, `test_OnlyTheTeacherCanRevokeALineageEdge`, `test_RoyaltyCannotBePaidOnAnInvalidLicense` |
+| Revocation changes state | `test_RevocationIsRecordedOnTheEasAttestation`, `test_OnlyTheTeacherCanRevokeALineageEdge`, `test_RevokedLineageStillPaysThePerformerButNotTheWithdrawnGuru` |
+| Payment refused without a live licence | `test_RoyaltyCannotBePaidWithoutALiveLicense`, `test_RoyaltyCannotBePaidOnAnExpiredLicense` |
 | Role-gated attestation | `test_ProposingRequiresThePerformerRole`, `test_ConfirmingRequiresTheGuruRole`, `test_OnlyTheRegistrarCanAdmitPerformersAndGurus` |
 | Distinct failure states | `test_EveryFailureReasonIsDistinguishable`, `test_RevokedIsDistinctFromExpiredAndFromLineageRevoked` |
 | Full lifecycle | `test_FullLifecycle_AttestLicenseCheckRevoke` — attest → license → check → revoke, end to end |
@@ -179,11 +180,20 @@ and expiry is verified against EAS's own behaviour.
 teacher, so `primaryLineageEdge` holds one confirmed edge per student and the graph walk is
 a chain. A student may propose a new edge once their existing one is revoked.
 
-**A revoked lineage invalidates the licence.** This is the behaviour the problem asks for —
-a "valid licence" check must reflect today's lineage. The consequence worth naming: while a
-lineage is revoked, `payRoyalty` reverts, so the performer cannot be paid under that licence
-until the lineage is re-established and a fresh licence issued. Royalties **already
-accrued** remain withdrawable; only future payment is blocked.
+**A revoked lineage invalidates the licence, but does not freeze the performer's income.**
+`checkLicense` returns `LineageRevoked` — that is the behaviour the problem asks for, and a
+platform relying on the check sees the truth immediately.
+
+`payRoyalty` treats that state differently from the others, though. A licence that was
+never issued, was revoked, or has lapsed reverts: there is no agreement to pay under. But a
+withdrawn *lineage* still permits payment, because the performer did record and perform the
+work. Blocking it would hand any teacher a unilateral freeze on their former student's
+income — a worse version of the middleman problem this registry exists to remove.
+
+The split resolves itself correctly with no special case: `resolveLineage` already stops at
+the revoked edge, so the performer is paid in full and the guru who withdrew receives
+nothing. A `RoyaltyPaidUnderRevokedLineage` event records that it happened, so the
+situation is auditable rather than silent.
 
 **Arbiter of last resort.** There is deliberately no admin override that can resurrect a
 revoked lineage. A guru's withdrawal is final unless the student obtains a new confirmation.

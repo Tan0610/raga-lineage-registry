@@ -410,12 +410,54 @@ contract RagaLineageTest is Test {
         assertEq(license.withdrawable(devika), 10 ether);
     }
 
-    function test_RoyaltyCannotBePaidOnAnInvalidLicense() public {
+    /// @notice A guru withdrawing their confirmation must not become a way to freeze
+    ///         their former student's income. The licence reads `LineageRevoked` — that
+    ///         fact is preserved — but the payment still reaches Devika, in full, and
+    ///         Rajam gets nothing from it.
+    function test_RevokedLineageStillPaysThePerformerButNotTheWithdrawnGuru() public {
         bytes32 edge = _confirmDevikaUnderRajam();
         _registerAndLicense();
 
         vm.prank(rajam);
         lineage.revokeLineage(edge);
+
+        // The check still reports the revocation.
+        assertEq(
+            uint8(license.checkLicense(RECORDING, platform)),
+            uint8(RagaLicenseRegistry.LicenseStatus.LineageRevoked)
+        );
+
+        vm.prank(platform);
+        license.payRoyalty{value: 10 ether}(RECORDING, platform);
+
+        assertEq(license.withdrawable(devika), 10 ether, "the performer is still paid");
+        assertEq(license.withdrawable(rajam), 0, "the guru who withdrew takes no share");
+        assertTrue(license.isSolvent());
+    }
+
+    /// @notice The cases where there genuinely is no agreement to pay under still revert.
+    function test_RoyaltyCannotBePaidWithoutALiveLicense() public {
+        _confirmDevikaUnderRajam();
+        vm.prank(devika);
+        license.registerRecording(RECORDING, "Kalyani", "Vanajakshi varnam");
+
+        // Never licensed.
+        vm.prank(platform);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RagaLicenseRegistry.LicenseNotValid.selector,
+                RECORDING,
+                platform,
+                RagaLicenseRegistry.LicenseStatus.NeverLicensed
+            )
+        );
+        license.payRoyalty{value: 1 ether}(RECORDING, platform);
+
+        // Revoked.
+        vm.prank(devika);
+        license.issueLicense(RECORDING, platform, licenceExpiry, "streaming");
+        vm.prank(devika);
+        license.revokeLicense(RECORDING, platform);
 
         vm.prank(platform);
         vm.expectRevert(
@@ -423,7 +465,25 @@ contract RagaLineageTest is Test {
                 RagaLicenseRegistry.LicenseNotValid.selector,
                 RECORDING,
                 platform,
-                RagaLicenseRegistry.LicenseStatus.LineageRevoked
+                RagaLicenseRegistry.LicenseStatus.Revoked
+            )
+        );
+        license.payRoyalty{value: 1 ether}(RECORDING, platform);
+    }
+
+    function test_RoyaltyCannotBePaidOnAnExpiredLicense() public {
+        _confirmDevikaUnderRajam();
+        _registerAndLicense();
+
+        vm.warp(uint256(licenceExpiry) + 1);
+
+        vm.prank(platform);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                RagaLicenseRegistry.LicenseNotValid.selector,
+                RECORDING,
+                platform,
+                RagaLicenseRegistry.LicenseStatus.Expired
             )
         );
         license.payRoyalty{value: 1 ether}(RECORDING, platform);
@@ -608,7 +668,8 @@ contract RagaLineageTest is Test {
             uint8(RagaLicenseRegistry.LicenseStatus.LineageRevoked)
         );
 
-        // Royalties already earned are still owed; only future licensing is affected.
+        // Royalties already earned are still owed. Future payments keep reaching Devika,
+        // but Rajam, having withdrawn his confirmation, no longer takes a share of them.
         vm.prank(ariyakudi);
         license.withdraw();
         assertEq(ariyakudi.balance, 1.2 ether);

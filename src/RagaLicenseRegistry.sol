@@ -109,6 +109,11 @@ contract RagaLicenseRegistry is AccessControl, ReentrancyGuard {
         bytes32 indexed recordingId, address indexed payer, uint256 amount, uint256 recipients
     );
     event RoyaltyCredited(address indexed recipient, uint256 amount, uint256 generation);
+    /// @notice A royalty was paid on a recording whose lineage has been withdrawn. The
+    ///         performer is paid in full and no upstream teacher receives a share.
+    event RoyaltyPaidUnderRevokedLineage(
+        bytes32 indexed recordingId, address indexed performer, uint256 amount
+    );
     event Withdrawn(address indexed account, uint256 amount);
 
     // ---------------------------------------------------------------------
@@ -300,7 +305,25 @@ contract RagaLicenseRegistry is AccessControl, ReentrancyGuard {
         Recording storage r = _requireRecording(recordingId);
 
         LicenseStatus status = checkLicense(recordingId, licensee);
-        if (status != LicenseStatus.Valid) revert LicenseNotValid(recordingId, licensee, status);
+
+        // A licence that was never issued, has been revoked, or has lapsed stops payment
+        // dead: there is no agreement to pay under.
+        //
+        // `LineageRevoked` is deliberately treated differently. The guru has withdrawn
+        // their confirmation, which is a real fact and one `checkLicense` keeps
+        // reporting — but the performer still recorded and performed the work. Refusing
+        // the payment outright would hand any teacher a unilateral freeze on their
+        // former student's income, which is a worse version of the middleman problem
+        // this registry exists to remove. So the money still flows, and
+        // `resolveLineage` has already stopped at the revoked edge, meaning the split
+        // naturally pays the performer alone and the withdrawn teacher receives
+        // nothing. The event records that this happened.
+        if (status != LicenseStatus.Valid && status != LicenseStatus.LineageRevoked) {
+            revert LicenseNotValid(recordingId, licensee, status);
+        }
+        if (status == LicenseStatus.LineageRevoked) {
+            emit RoyaltyPaidUnderRevokedLineage(recordingId, r.performer, msg.value);
+        }
 
         (address[] memory recipients, uint256[] memory amounts) =
             lineageRegistry.splitRoyalty(r.performer, msg.value);
