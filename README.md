@@ -424,6 +424,11 @@ reproducible resolver output are in **[DEPLOYMENTS.md](DEPLOYMENTS.md)**.
 | `RagaLicenseRegistry` | `0x56Da8B087A7B482340805fb03F56910175A699E5` |
 | `LineageAttestationResolver` | `0x241d8fb560A670BEaE4915B25EC757b051eE7330` |
 
+All three are **source-verified on Sourcify** with an exact match on creation and runtime
+bytecode. That the [resolver](https://repo.sourcify.dev/84532/0x241d8fb560A670BEaE4915B25EC757b051eE7330)
+is verified matters most: anyone can read it and confirm for themselves that it rejects any
+attester but the registry, which is what makes the teacher-confirmation step unbypassable.
+
 The Devika → Rajam → Ariyakudi lineage is confirmed on-chain through the real two-step
 flow, and both CLI tools run against it. `verify-split` reports **MATCH** — the graph
 rebuilt from the live event log agrees with the on-chain arithmetic.
