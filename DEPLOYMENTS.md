@@ -77,3 +77,24 @@ Actual output from the live deployment:
 > its private key was exposed during development. It holds `DEFAULT_ADMIN_ROLE` on this
 > deployment, which is therefore a demonstration, not a production instance. A real
 > deployment would put that role behind a multisig.
+
+## Source verification
+
+All three contracts are verified on **Sourcify** with an exact match on both creation and
+runtime bytecode, so the deployed code is provably the code in this repo:
+
+| Contract | Sourcify |
+|---|---|
+| `RagaLineageRegistry` | https://repo.sourcify.dev/84532/0x7213E581c9a49Cdf9B10400ac52A90B7D5D4095F |
+| `RagaLicenseRegistry` | https://repo.sourcify.dev/84532/0x56Da8B087A7B482340805fb03F56910175A699E5 |
+| `LineageAttestationResolver` | https://repo.sourcify.dev/84532/0x241d8fb560A670BEaE4915B25EC757b051eE7330 |
+
+```bash
+curl -s https://sourcify.dev/server/v2/contract/84532/0x7213E581c9a49Cdf9B10400ac52A90B7D5D4095F
+# {"match":"match","creationMatch":"match","runtimeMatch":"match", ...}
+```
+
+Sourcify rather than Basescan because it needs no API key, and Basescan surfaces
+Sourcify-verified sources anyway. That the *resolver* is verified matters most: anyone can
+read it and confirm for themselves that it rejects any attester but the registry, which is
+what makes the teacher-confirmation step unbypassable.
