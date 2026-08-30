@@ -34,6 +34,31 @@ import {licenseRegistryAbi, lineageEventsAbi, splitRoyaltyAbi} from "./abi.js";
 
 const TOTAL_BPS = 10_000n;
 
+/** Public RPCs reject an eth_getLogs span wider than this. */
+const MAX_LOG_RANGE = 9_999n;
+
+/** How far back to scan when no --fromBlock is given. ~2 days of Base blocks. */
+const DEFAULT_LOOKBACK = 100_000n;
+
+/**
+ * eth_getLogs across an arbitrary range, split into windows the RPC will accept.
+ * Scanning from genesis is not possible on a live network, and silently truncating
+ * the range would mean silently reconstructing the wrong graph — so the walk is
+ * explicit and complete over whatever range it is given.
+ */
+async function getLogsChunked<T>(
+  fetchWindow: (from: bigint, to: bigint) => Promise<T[]>,
+  fromBlock: bigint,
+  toBlock: bigint,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let start = fromBlock; start <= toBlock; start += MAX_LOG_RANGE + 1n) {
+    const end = start + MAX_LOG_RANGE > toBlock ? toBlock : start + MAX_LOG_RANGE;
+    out.push(...(await fetchWindow(start, end)));
+  }
+  return out;
+}
+
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(`--${name}`);
   return i === -1 ? undefined : process.argv[i + 1];
@@ -65,12 +90,22 @@ async function main() {
   }
 
   const amount = parseEther(arg("amount") ?? "10");
-  const fromBlock = BigInt(arg("fromBlock") ?? "0");
 
   const client = createPublicClient({
     chain: baseSepolia,
     transport: http(arg("rpc") ?? process.env.RPC_URL),
   });
+
+  // Public RPCs cap eth_getLogs at a 10,000-block range, so scanning from genesis is
+  // not an option on a live network. Default to a recent window and let the caller
+  // widen it; the whole range is then walked in chunks under that cap regardless.
+  const latest = await client.getBlockNumber();
+  const fromBlockArg = arg("fromBlock");
+  const fromBlock = fromBlockArg
+    ? BigInt(fromBlockArg)
+    : latest > DEFAULT_LOOKBACK
+      ? latest - DEFAULT_LOOKBACK
+      : 0n;
 
   const lineageRegistry = await client.readContract({
     address: registryAddress,
@@ -84,25 +119,24 @@ async function main() {
 
   // --- 1. read the raw log ------------------------------------------------
 
+  const events = <E extends "LineageProposed" | "LineageConfirmed" | "LineageRevoked">(eventName: E) =>
+    getLogsChunked(
+      (from, to) =>
+        client.getContractEvents({
+          address: lineageRegistry,
+          abi: lineageEventsAbi,
+          eventName,
+          fromBlock: from,
+          toBlock: to,
+        }),
+      fromBlock,
+      latest,
+    );
+
   const [proposed, confirmed, revoked] = await Promise.all([
-    client.getContractEvents({
-      address: lineageRegistry,
-      abi: lineageEventsAbi,
-      eventName: "LineageProposed",
-      fromBlock,
-    }),
-    client.getContractEvents({
-      address: lineageRegistry,
-      abi: lineageEventsAbi,
-      eventName: "LineageConfirmed",
-      fromBlock,
-    }),
-    client.getContractEvents({
-      address: lineageRegistry,
-      abi: lineageEventsAbi,
-      eventName: "LineageRevoked",
-      fromBlock,
-    }),
+    events("LineageProposed"),
+    events("LineageConfirmed"),
+    events("LineageRevoked"),
   ]);
 
   // The agreed share lives on the proposal; the uid lives on the confirmation.

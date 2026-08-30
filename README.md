@@ -376,6 +376,23 @@ forge test --match-contract Invariant -v
 
 ---
 
+## Live on Base Sepolia
+
+Deployed, seeded, and verified on-chain. Full addresses, the seeded lineage, and
+reproducible resolver output are in **[DEPLOYMENTS.md](DEPLOYMENTS.md)**.
+
+| Contract | Address |
+|---|---|
+| `RagaLineageRegistry` | `0x7213E581c9a49Cdf9B10400ac52A90B7D5D4095F` |
+| `RagaLicenseRegistry` | `0x56Da8B087A7B482340805fb03F56910175A699E5` |
+| `LineageAttestationResolver` | `0x241d8fb560A670BEaE4915B25EC757b051eE7330` |
+
+The Devika → Rajam → Ariyakudi lineage is confirmed on-chain through the real two-step
+flow, and both CLI tools run against it. `verify-split` reports **MATCH** — the graph
+rebuilt from the live event log agrees with the on-chain arithmetic.
+
+---
+
 ## Verified against the EAS that is actually on Base Sepolia
 
 The unit and invariant suites deploy **eas-contracts v1.4.0** locally. Base Sepolia's
